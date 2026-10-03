@@ -3,8 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { ThemeToggle } from "../theme/theme-toggle";
+import { NotificationBell } from "./notification-bell";
 import { Dropdown, DropdownItem, DropdownSeparator } from "../ui/dropdown";
-import { Bell, User, Settings, LogOut, ChevronDown, GraduationCap } from "lucide-react";
+import { User, Settings, LogOut, ChevronDown, GraduationCap } from "lucide-react";
 import { logoutUser } from "@/lib/actions/auth";
 
 interface TopNavbarProps {
@@ -29,15 +30,15 @@ export function TopNavbar({ user }: TopNavbarProps) {
     .toUpperCase();
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/95 backdrop-blur-xs px-4 sm:px-6">
+    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/80 backdrop-blur-xl px-4 sm:px-6">
       {/* Left: Active Semester Indicator */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)]">
-          <GraduationCap className="h-4 w-4 text-[var(--brand-primary)]" />
-          <span>Semester {currentSemester}</span>
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/70 px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] backdrop-blur-md">
+          <GraduationCap className="h-4 w-4 text-[var(--brand-primary)] drop-shadow-[0_0_6px_rgba(0,229,255,0.4)]" />
+          <span className="font-mono">Semester {currentSemester}</span>
         </div>
         {user.profile?.university && (
-          <span className="hidden md:inline-block text-xs text-[var(--text-muted)] truncate max-w-xs">
+          <span className="hidden md:inline-block text-xs text-[var(--text-muted)] truncate max-w-xs font-sans">
             {user.profile.university}
           </span>
         )}
@@ -47,24 +48,17 @@ export function TopNavbar({ user }: TopNavbarProps) {
       <div className="flex items-center gap-3">
         <ThemeToggle />
 
-        {/* Notifications Icon Placeholder */}
-        <button
-          type="button"
-          aria-label="View notifications"
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-elevated)] transition-colors cursor-pointer"
-        >
-          <Bell className="h-4 w-4" />
-          <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-[var(--brand-primary)]" />
-        </button>
+        {/* Live Notification Bell */}
+        <NotificationBell />
 
         {/* User Profile Menu */}
         <Dropdown
           trigger={
             <button
               type="button"
-              className="flex items-center gap-2 rounded-lg p-1 hover:bg-[var(--bg-surface-elevated)] transition-colors cursor-pointer select-none"
+              className="flex items-center gap-2 rounded-xl p-1 hover:bg-[var(--bg-surface-elevated)] transition-colors cursor-pointer select-none"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--brand-primary)] text-white text-xs font-bold">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-[var(--brand-primary)] to-[var(--brand-cyan)] text-slate-950 text-xs font-extrabold shadow-[0_0_12px_rgba(0,229,255,0.25)]">
                 {initials}
               </div>
               <div className="hidden sm:flex flex-col text-left">

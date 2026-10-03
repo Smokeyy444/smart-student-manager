@@ -31,6 +31,9 @@ enum EventType {
   ASSIGNMENT
   PROJECT
   PRESENTATION
+  COLLEGE_EVENT
+  PERSONAL
+  OTHER
   COLLEGE
   CUSTOM
 }
@@ -51,8 +54,11 @@ enum EventStatus {
 
 enum ReminderStatus {
   SCHEDULED
-  TRIGGERED
+  DUE
+  COMPLETED
   DISMISSED
+  CANCELLED
+  TRIGGERED
 }
 
 enum AttendanceStatus {
@@ -132,6 +138,7 @@ model Semester {
   updatedAt      DateTime       @updatedAt
 
   subjects       Subject[]
+  events         Event[]
 
   @@unique([userId, semesterNumber])
   @@index([userId, status])
@@ -196,12 +203,15 @@ model Event {
   id          String      @id @default(cuid())
   userId      String
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  semesterId  String?
+  semester    Semester?   @relation(fields: [semesterId], references: [id], onDelete: SetNull)
   subjectId   String?
   subject     Subject?    @relation(fields: [subjectId], references: [id], onDelete: SetNull)
   title       String
   eventType   EventType   @default(ASSIGNMENT)
   startTime   DateTime
   endTime     DateTime?
+  isAllDay    Boolean     @default(false)
   priority    Priority    @default(MEDIUM)
   status      EventStatus @default(PENDING)
   description String?
@@ -212,6 +222,8 @@ model Event {
 
   @@index([userId, startTime])
   @@index([userId, status])
+  @@index([semesterId])
+  @@index([subjectId])
 }
 
 model Reminder {
@@ -223,6 +235,7 @@ model Reminder {
   status          ReminderStatus @default(SCHEDULED)
   channel         String         @default("IN_APP")
   createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @default(now()) @updatedAt
 
   @@index([eventId])
   @@index([triggerAt, status])

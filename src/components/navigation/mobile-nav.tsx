@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   GraduationCap,
   CalendarDays,
+  Bell,
   Menu,
   X,
   User,
@@ -24,13 +25,13 @@ export function MobileNav({ userFullName }: { userFullName?: string }) {
   return (
     <>
       {/* Mobile Bottom Navigation Bar */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex h-16 items-center justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/95 backdrop-blur-md px-2">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex h-16 items-center justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/85 backdrop-blur-xl px-2 shadow-lg">
         <Link
           href="/dashboard"
           className={cn(
             "flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
             pathname === "/dashboard"
-              ? "text-[var(--brand-primary)]"
+              ? "text-[var(--brand-primary)] drop-shadow-[0_0_8px_rgba(0,229,255,0.5)] font-semibold"
               : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           )}
         >
@@ -110,6 +111,14 @@ export function MobileNav({ userFullName }: { userFullName?: string }) {
             </div>
 
             <div className="flex-1 py-4 space-y-2">
+              <Link
+                href="/reminders"
+                onClick={() => setDrawerOpen(false)}
+                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)]"
+              >
+                <Bell className="h-4 w-4" />
+                Reminder Center
+              </Link>
               <Link
                 href="/profile"
                 onClick={() => setDrawerOpen(false)}

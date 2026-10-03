@@ -15,6 +15,7 @@ const PROTECTED_ROUTES = [
   "/grades",
   "/attendance",
   "/events",
+  "/reminders",
 ];
 
 const AUTH_ROUTES = ["/login", "/register"];

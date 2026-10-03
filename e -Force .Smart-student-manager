@@ -1,0 +1,39 @@
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'prisma/schema.prisma', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/dashboard/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/events/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/globals.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/attendance/attendance-aggregate-modal.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/attendance/attendance-csv-import-modal.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/attendance/attendance-log-modal.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/attendance/attendance-view.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/grades/grades-view.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/navigation/mobile-nav.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/navigation/sidebar.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/navigation/top-navbar.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ui/badge.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ui/button.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ui/card.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ui/stat-card.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/prisma.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/middleware.ts', LF will be replaced by CRLF the next time Git touches it
+ package.json                                       |   3 [32m+[m[31m-[m
+ prisma/schema.prisma                               |  15 [32m+[m[31m-[m
+ src/app/dashboard/page.tsx                         | 224 [32m++[m[31m-------------------[m
+ src/app/events/page.tsx                            |  24 [32m++[m[31m-[m
+ src/app/globals.css                                | 114 [32m+++++++++[m[31m--[m
+ .../attendance/attendance-aggregate-modal.tsx      |   7 [32m+[m[31m-[m
+ .../attendance/attendance-csv-import-modal.tsx     |   6 [32m+[m[31m-[m
+ src/components/attendance/attendance-log-modal.tsx |  27 [32m++[m[31m-[m
+ src/components/attendance/attendance-view.tsx      |  11 [32m+[m[31m-[m
+ src/components/grades/grades-view.tsx              |   6 [32m+[m[31m-[m
+ src/components/navigation/mobile-nav.tsx           |  13 [32m+[m[31m-[m
+ src/components/navigation/sidebar.tsx              |  39 [32m++[m[31m--[m
+ src/components/navigation/top-navbar.tsx           |  28 [32m+[m[31m--[m
+ src/components/ui/badge.tsx                        |  16 [32m+[m[31m-[m
+ src/components/ui/button.tsx                       |  14 [32m+[m[31m-[m
+ src/components/ui/card.tsx                         |   2 [32m+[m[31m-[m
+ src/components/ui/stat-card.tsx                    |  18 [32m+[m[31m-[m
+ src/lib/prisma.ts                                  |   2 [32m+[m
+ src/middleware.ts                                  |   1 [32m+[m
+ 19 files changed, 259 insertions(+), 311 deletions(-)

@@ -315,3 +315,35 @@ export function parseBulkAttendanceRecord(record: {
     targetPercentage: target,
   };
 }
+
+/**
+ * Calculates the overall aggregate attendance across multiple subjects.
+ * Uses the sum of attended / sum of conducted formula (weighted by class count).
+ *
+ * Returns:
+ * - overallPercentage: null if no classes have been conducted yet
+ * - totalAttended, totalConducted: raw sums
+ */
+export function calculateOverallSemesterAttendance(
+  records: Array<{ classesAttended: number; classesConducted: number }>
+): {
+  overallPercentage: number | null;
+  totalAttended: number;
+  totalConducted: number;
+} {
+  let totalAttended = 0;
+  let totalConducted = 0;
+
+  for (const r of records) {
+    totalAttended += r.classesAttended;
+    totalConducted += r.classesConducted;
+  }
+
+  if (totalConducted === 0) {
+    return { overallPercentage: null, totalAttended: 0, totalConducted: 0 };
+  }
+
+  const overallPercentage = roundToDecimals((totalAttended / totalConducted) * 100, 2);
+  return { overallPercentage, totalAttended, totalConducted };
+}
+

@@ -8,9 +8,10 @@ export interface DialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
+  className?: string;
 }
 
-export function Dialog({ open, onOpenChange, children }: DialogProps) {
+export function Dialog({ open, onOpenChange, children, className }: DialogProps) {
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -43,7 +44,10 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
       <div
         role="dialog"
         aria-modal="true"
-        className="relative z-50 w-full max-w-lg rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-6 shadow-xl transition-all animate-in zoom-in-95"
+        className={cn(
+          "relative z-50 w-full max-w-lg rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-6 shadow-xl transition-all animate-in zoom-in-95",
+          className
+        )}
       >
         <button
           onClick={() => onOpenChange(false)}
