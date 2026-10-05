@@ -46,6 +46,8 @@ Configure the following variables in the **Vercel Project Dashboard** under **Se
 | `AUTH_SECRET` | Production, Preview | 32+ character high-entropy key for JWT signing |
 | `NEXT_PUBLIC_APP_URL` | Production | `https://your-domain.vercel.app` |
 | `NODE_ENV` | Production | `production` |
+| `GEMINI_API_KEY` | Production, Preview (Server-side secret) | Google Gemini API key for AI Smart Import. **Required only for Smart Import feature**. Never prefix with `NEXT_PUBLIC_`. |
+| `GEMINI_MODEL` | Production (Optional) | Multimodal model name (default: `gemini-2.5-flash`) |
 
 ### Generating a Secure `AUTH_SECRET`
 Generate a high-entropy secret using OpenSSL or Node:
@@ -56,6 +58,15 @@ openssl rand -base64 32
 # Windows PowerShell:
 [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 }))
 ```
+
+### AI Smart Import Configuration (`GEMINI_API_KEY`)
+1. Create or obtain an API key from [Google AI Studio](https://aistudio.google.com/).
+2. Add `GEMINI_API_KEY` to your Vercel Project Settings under **Environment Variables**.
+3. **Security Rules:**
+   - Server-side only: never prefix with `NEXT_PUBLIC_`.
+   - Never commit your API key to GitHub.
+   - Smart Student Manager discards temporary image data immediately after extraction; images are never written to disk or permanent database storage.
+   - If `GEMINI_API_KEY` is omitted, all other functions (Manual Entry, CSV / Excel Import, What-If Simulator, GPA calculations, Attendance tracking) remain 100% operational, with clear in-app fallback messages directing users to CSV import.
 
 > [!CAUTION]
 > Never commit `.env` or production secrets to Git. Verify that `.gitignore` contains `.env*`.

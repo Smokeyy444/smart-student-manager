@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { AttendanceSubjectCard } from "./attendance-subject-card";
 import { BulkAttendanceModal } from "./bulk-attendance-modal";
 import { AttendanceCsvImportModal } from "./attendance-csv-import-modal";
+import { SmartImportModal } from "../ai/smart-import-modal";
 import { generateAttendanceCsv } from "@/lib/utils/attendance-csv";
 import {
   calculateAttendancePercentage,
@@ -22,6 +23,7 @@ import {
   ClipboardList,
   Download,
   Upload,
+  Sparkles,
   AlertTriangle,
   CheckCircle2,
   BarChart3,
@@ -46,6 +48,7 @@ export function AttendanceView({ initialData }: AttendanceViewProps) {
 
   const [bulkModalOpen, setBulkModalOpen] = React.useState(false);
   const [csvImportModalOpen, setCsvImportModalOpen] = React.useState(false);
+  const [smartImportOpen, setSmartImportOpen] = React.useState(false);
 
   const selectedSemester = React.useMemo<AttendanceSemesterData | null>(
     () => semesters.find((s) => s.id === selectedSemesterId) ?? semesters[0] ?? null,
@@ -200,6 +203,16 @@ export function AttendanceView({ initialData }: AttendanceViewProps) {
       >
         {selectedSemester && (
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setSmartImportOpen(true)}
+              className="gap-1.5 shadow-2xs"
+              id="attendance-smart-import-btn"
+            >
+              <Sparkles className="h-4 w-4" />
+              Smart Import
+            </Button>
             <Button
               variant="secondary"
               size="sm"
@@ -370,8 +383,26 @@ export function AttendanceView({ initialData }: AttendanceViewProps) {
           onOpenChange={setCsvImportModalOpen}
           semesterName={selectedSemester.name}
           subjects={subjects.map((s) => ({ id: s.id, name: s.name, code: s.code }))}
+          onSwitchToSmartImport={() => {
+            setCsvImportModalOpen(false);
+            setSmartImportOpen(true);
+          }}
         />
       )}
+
+      {/* Smart Import modal */}
+      <SmartImportModal
+        open={smartImportOpen}
+        onOpenChange={setSmartImportOpen}
+        defaultImportType="ATTENDANCE"
+        selectedSemesterId={selectedSemesterId}
+        semesters={semesters.map((s) => ({
+          id: s.id,
+          name: s.name,
+          semesterNumber: s.semesterNumber,
+        }))}
+        onFallbackToCsv={() => setCsvImportModalOpen(true)}
+      />
     </div>
   );
 }

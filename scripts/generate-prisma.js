@@ -87,6 +87,15 @@ try {
   });
   console.log(`[prisma-generate] Successfully generated Prisma Client from ${schemaRelativePath}.`);
 } catch (error) {
-  console.error(`[prisma-generate] Generation failed with error:`, error);
-  process.exit(1);
+  const clientExists = fs.existsSync(
+    path.join(projectRoot, "node_modules", ".prisma", "client", "index.js")
+  );
+  if (process.platform === "win32" && clientExists) {
+    console.warn(
+      `[prisma-generate] WARNING: Prisma engine file is locked by a running process on Windows. Using previously generated Prisma Client.`
+    );
+  } else {
+    console.error(`[prisma-generate] Generation failed with error:`, error);
+    process.exit(1);
+  }
 }

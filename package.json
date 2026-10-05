@@ -17,8 +17,10 @@
     "node": "24.x"
   },
   "dependencies": {
+    "@google/genai": "^2.27.0",
     "@hookform/resolvers": "^5.9.1",
     "@prisma/client": "^6.19.3",
+    "@vercel/analytics": "^2.0.1",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "jose": "^6.2.12",
@@ -45,4 +47,3 @@
     "vitest": "^5.0.3"
   }
 }
-

@@ -9,12 +9,14 @@ import { useToast } from "@/components/ui/toast";
 import { bulkCreateSubjects } from "@/lib/actions/academic";
 import { parseAcademicCsv, type ParsedSubjectRow } from "@/lib/utils/csv-parser";
 import type { BulkSubjectRowInput } from "@/lib/validations/academic";
+import { Sparkles } from "lucide-react";
 
 interface BulkSubjectModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   semesterId: string;
   semesterName: string;
+  onSwitchToSmartImport?: () => void;
 }
 
 interface EditableSubjectRow extends BulkSubjectRowInput {
@@ -33,6 +35,7 @@ export function BulkSubjectModal({
   onOpenChange,
   semesterId,
   semesterName,
+  onSwitchToSmartImport,
 }: BulkSubjectModalProps) {
   const { toast } = useToast();
   const router = useRouter();
@@ -267,6 +270,17 @@ export function BulkSubjectModal({
             >
               Paste / CSV Import
             </button>
+            {onSwitchToSmartImport && (
+              <button
+                type="button"
+                onClick={onSwitchToSmartImport}
+                className="px-3 py-1 rounded-md font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 transition-colors flex items-center gap-1"
+                title="Extract courses from screenshot with AI"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Smart Import
+              </button>
+            )}
           </div>
         </div>
         <DialogDescription>

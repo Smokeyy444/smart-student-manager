@@ -15,6 +15,7 @@ import { SubjectTable, type SubjectRowData } from "./subject-table";
 import { BulkSubjectModal } from "./bulk-subject-modal";
 import { BulkGradeModal } from "./bulk-grade-modal";
 import { BulkAttendanceModal } from "../attendance/bulk-attendance-modal";
+import { SmartImportModal } from "../ai/smart-import-modal";
 import { deleteSemester, deleteSubject } from "@/lib/actions/academic";
 import { generateSemesterCsv } from "@/lib/utils/csv-parser";
 import { useToast } from "../ui/toast";
@@ -90,6 +91,7 @@ export function GradesView({ initialData }: GradesViewProps) {
   const [bulkSubjectOpen, setBulkSubjectOpen] = React.useState(false);
   const [bulkGradeOpen, setBulkGradeOpen] = React.useState(false);
   const [bulkAttendanceOpen, setBulkAttendanceOpen] = React.useState(false);
+  const [smartImportOpen, setSmartImportOpen] = React.useState(false);
 
   // Deletion confirmations
   const [deleteSemesterConfirmOpen, setDeleteSemesterConfirmOpen] = React.useState(false);
@@ -258,6 +260,17 @@ export function GradesView({ initialData }: GradesViewProps) {
         }
       >
         <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setSmartImportOpen(true)}
+            className="gap-1.5"
+            id="grades-smart-import-header-btn"
+          >
+            <Sparkles className="h-4 w-4 text-[var(--brand-primary)]" />
+            Smart Import
+          </Button>
+
           <Button variant="secondary" size="sm" onClick={() => setWhatIfOpen((prev) => !prev)}>
             <Sparkles className="h-4 w-4 mr-1.5 text-[var(--brand-primary)]" />
             {whatIfOpen ? "Hide What-If" : "What-If Simulator"}
@@ -428,6 +441,17 @@ export function GradesView({ initialData }: GradesViewProps) {
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setSmartImportOpen(true)}
+                  title="Extract grades or attendance from university screenshot"
+                  className="gap-1.5 shadow-2xs"
+                  id="grades-smart-import-semester-btn"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Smart Import
+                </Button>
+                <Button
                   variant="outline"
                   size="sm"
                   onClick={handleExportCsv}
@@ -552,6 +576,10 @@ export function GradesView({ initialData }: GradesViewProps) {
           onOpenChange={setBulkSubjectOpen}
           semesterId={selectedSemester.id}
           semesterName={selectedSemester.name}
+          onSwitchToSmartImport={() => {
+            setBulkSubjectOpen(false);
+            setSmartImportOpen(true);
+          }}
         />
       )}
 
@@ -594,6 +622,20 @@ export function GradesView({ initialData }: GradesViewProps) {
         variant="danger"
         isLoading={isDeletingSubject}
         onConfirm={confirmDeleteSubject}
+      />
+
+      {/* Smart Import Modal */}
+      <SmartImportModal
+        open={smartImportOpen}
+        onOpenChange={setSmartImportOpen}
+        defaultImportType="GRADES"
+        selectedSemesterId={selectedSemester?.id}
+        semesters={semesters.map((s) => ({
+          id: s.id,
+          name: s.name,
+          semesterNumber: s.semesterNumber,
+        }))}
+        onFallbackToCsv={() => setBulkSubjectOpen(true)}
       />
     </div>
   );

@@ -14,7 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { useRouter } from "next/navigation";
 import { bulkUpdateAttendance } from "@/lib/actions/academic";
 import { parseAttendanceCsv, type ParsedAttendanceRow } from "@/lib/utils/attendance-csv";
-import { Upload, FileText, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Upload, FileText, AlertTriangle, CheckCircle2, Sparkles } from "lucide-react";
 
 interface SubjectItem {
   id: string;
@@ -27,6 +27,7 @@ interface AttendanceCsvImportModalProps {
   onOpenChange: (open: boolean) => void;
   semesterName: string;
   subjects: SubjectItem[];
+  onSwitchToSmartImport?: () => void;
 }
 
 export function AttendanceCsvImportModal({
@@ -34,6 +35,7 @@ export function AttendanceCsvImportModal({
   onOpenChange,
   semesterName,
   subjects,
+  onSwitchToSmartImport,
 }: AttendanceCsvImportModalProps) {
   const { toast } = useToast();
   const router = useRouter();
@@ -158,6 +160,24 @@ export function AttendanceCsvImportModal({
       </DialogHeader>
 
       <div className="space-y-4">
+        {onSwitchToSmartImport && (
+          <div className="flex items-center justify-between p-2.5 rounded-lg bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/20 text-xs">
+            <span className="text-[var(--text-primary)]">
+              Have a screenshot of your university portal? Extract records automatically with AI.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onSwitchToSmartImport}
+              className="text-xs h-7 gap-1 border-[var(--brand-primary)]/30 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 shrink-0 ml-2"
+            >
+              <Sparkles className="h-3 w-3" />
+              Smart Import
+            </Button>
+          </div>
+        )}
+
         {/* File upload */}
         <div className="flex items-center gap-3">
           <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--border-subtle)] transition-colors">
