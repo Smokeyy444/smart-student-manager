@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import {
   extractAcademicDataWithGemini,
   isGeminiConfigured,
+  getGeminiModelName,
   type ImagePart,
 } from "./gemini";
 import {
@@ -382,10 +383,43 @@ export async function processSmartImportImages(
     const totalDetectedRows =
       attendanceItems.length + gradeItems.length + detailedMarksItems.length;
 
+    // Meaningful completeness detection: if Gemini returns 0 extracted rows
+    if (totalDetectedRows === 0) {
+      return {
+        success: false,
+        error:
+          "Could not reliably extract the course rows from this result screenshot. Please try again or use CSV/manual import.",
+      };
+    }
+
+    if (
+      (documentType === "GRADES" || aiResult.documentType === "GRADES") &&
+      gradeItems.length === 0
+    ) {
+      return {
+        success: false,
+        error:
+          "Could not reliably extract the course rows from this result screenshot. Please try again or use CSV/manual import.",
+      };
+    }
+
     let isPotentiallyIncomplete = false;
     let completenessWarning: string | null = null;
 
-    if (documentType === "ATTENDANCE" || aiResult.documentType === "ATTENDANCE") {
+    if (documentType === "GRADES" || aiResult.documentType === "GRADES") {
+      if (gradeItems.length > 0 && gradeItems.length <= 2) {
+        isPotentiallyIncomplete = true;
+        completenessWarning = `Only ${gradeItems.length} course${
+          gradeItems.length === 1 ? "" : "s"
+        } detected — please review your screenshot(s) because some rows may have been missed.`;
+      } else if (
+        typeof aiResult.totalSubjectsDetected === "number" &&
+        aiResult.totalSubjectsDetected > gradeItems.length
+      ) {
+        isPotentiallyIncomplete = true;
+        completenessWarning = `The AI detected approximately ${aiResult.totalSubjectsDetected} course rows in the document, but only ${gradeItems.length} were fully extracted. Please verify all courses below.`;
+      }
+    } else if (documentType === "ATTENDANCE" || aiResult.documentType === "ATTENDANCE") {
       if (attendanceItems.length > 0 && attendanceItems.length <= 2) {
         isPotentiallyIncomplete = true;
         completenessWarning = `Only ${attendanceItems.length} subject${
@@ -400,18 +434,32 @@ export async function processSmartImportImages(
       }
     }
 
-    // 5. Development-only structured debug logging (without logging image contents or secrets)
+    // 5. Development-only safe diagnostics (Requirement 2: no images, base64, API keys or PII)
     if (process.env.NODE_ENV !== "production") {
-      console.log("[Smart Import Debug]", {
-        imagesSubmitted: fileEntries.length,
-        imagesSentToGemini: imageParts.length,
-        rawAttendanceRowsReturned: aiResult.attendanceRows.length,
-        attendanceRowsAfterValidation: attendanceItems.length,
-        gradeRowsAfterValidation: gradeItems.length,
-        detailedMarksRowsAfterValidation: detailedMarksItems.length,
-        totalDetectedRows,
-        documentType: aiResult.documentType,
-        isPotentiallyIncomplete,
+      const matchedGrades = gradeItems.filter((g) => g.matchedSubjectId !== null).length;
+      const unmatchedGrades = gradeItems.filter((g) => g.matchedSubjectId === null).length;
+      console.log("[Smart Import Diagnostics: Final Payload]", {
+        extractionType: documentType,
+        numberImages: fileEntries.length,
+        geminiModel: getGeminiModelName(),
+        responseReceived: true,
+        parsedGradeRowsLength: aiResult.gradeRows.length,
+        parsedAttendanceRowsLength: aiResult.attendanceRows.length,
+        parsedDetailedMarksRowsLength: aiResult.detailedMarksRows.length,
+        totalSubjectsDetected: aiResult.totalSubjectsDetected,
+        validationSuccess: true,
+        rowsAfterDeduplication:
+          aiResult.gradeRows.length +
+          aiResult.attendanceRows.length +
+          aiResult.detailedMarksRows.length,
+        rowsAfterMatching: {
+          grades: { matched: matchedGrades, unmatchedNeedsMapping: unmatchedGrades },
+        },
+        rowsInFinalReviewPayload: {
+          attendanceItems: attendanceItems.length,
+          gradeItems: gradeItems.length,
+          detailedMarksItems: detailedMarksItems.length,
+        },
       });
     }
 
@@ -435,11 +483,37 @@ export async function processSmartImportImages(
       payload,
     };
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to process image with AI.";
+    let message = error instanceof Error ? error.message : "Failed to process image with AI.";
+
+    // Never leak raw Gemini JSON error blobs to the UI
+    if (message.includes('{"error"') || (message.startsWith("{") && message.includes('"message"'))) {
+      try {
+        const parsed = JSON.parse(message);
+        const innerCode = parsed?.error?.code;
+        const innerStatus = parsed?.error?.status;
+        if (innerCode === 503 || innerStatus === "UNAVAILABLE" || [500, 502, 504].includes(innerCode)) {
+          message = "AI service is temporarily unavailable. Please try again later or use CSV / Manual Import.";
+        } else if (parsed?.error?.message) {
+          message = parsed.error.message;
+        }
+      } catch {
+        // Not valid JSON
+      }
+    }
+
+    if (
+      message.includes("503") ||
+      message.includes("UNAVAILABLE") ||
+      message.includes("high demand") ||
+      message.includes("overloaded")
+    ) {
+      message = "AI service is temporarily unavailable. Please try again later or use CSV / Manual Import.";
+    }
+
     console.error("Smart Import processing error:", message);
     return {
       success: false,
-      error: message || "Failed to process image with AI. You can still use CSV import.",
+      error: message || "AI service is temporarily unavailable. Please try again later or use CSV / Manual Import.",
     };
   }
 }

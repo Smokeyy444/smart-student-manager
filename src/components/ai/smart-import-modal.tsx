@@ -222,7 +222,9 @@ function SmartImportModalContent({
       const res = await processSmartImportImages(formData);
 
       if (!res.success || !res.payload) {
-        setErrorMessage(res.error || "AI extraction failed. You can still use CSV import.");
+        setErrorMessage(
+          res.error || "AI service is temporarily unavailable. Please try again later or use CSV / Manual Import."
+        );
         setStep("UPLOAD");
         return;
       }
@@ -235,21 +237,40 @@ function SmartImportModalContent({
       setExistingSubjects(payload.existingSubjects);
 
       // Set active tab based on detected type
-      if (payload.documentType === "ATTENDANCE" || payload.attendanceItems.length > 0) {
-        setActiveTab("ATTENDANCE");
-      } else if (payload.documentType === "GRADES" || payload.gradeItems.length > 0) {
+      if (
+        importType === "GRADES" ||
+        payload.documentType === "GRADES" ||
+        (payload.gradeItems.length > 0 && payload.attendanceItems.length === 0)
+      ) {
         setActiveTab("GRADES");
+      } else if (
+        importType === "ATTENDANCE" ||
+        payload.documentType === "ATTENDANCE" ||
+        (payload.attendanceItems.length > 0 && payload.gradeItems.length === 0)
+      ) {
+        setActiveTab("ATTENDANCE");
       } else if (payload.detailedMarksItems.length > 0) {
         setActiveTab("MARKS");
+      } else if (payload.gradeItems.length > 0) {
+        setActiveTab("GRADES");
+      } else {
+        setActiveTab("ATTENDANCE");
       }
 
       setStep("REVIEW");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "AI extraction is temporarily unavailable.";
+      const raw = err instanceof Error ? err.message : "AI service is temporarily unavailable.";
+      let message = raw;
+      if (
+        raw.includes("503") ||
+        raw.includes("UNAVAILABLE") ||
+        raw.includes("high demand") ||
+        raw.includes("overloaded")
+      ) {
+        message = "AI service is temporarily unavailable. Please try again later or use CSV / Manual Import.";
+      }
       console.error("Error during smart extraction:", message);
-      setErrorMessage(
-        `${message} You can still use CSV import.`
-      );
+      setErrorMessage(message);
       setStep("UPLOAD");
     }
   };
@@ -801,9 +822,14 @@ function SmartImportModalContent({
               Gemini AI is scanning {selectedFiles.length} screenshot{selectedFiles.length > 1 ? "s" : ""} from top to bottom for complete attendance tables, course codes, and grades.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-            <span>This usually takes 3 to 8 seconds...</span>
+          <div className="flex flex-col items-center gap-1.5 text-xs text-[var(--text-muted)]">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              <span>This usually takes 3 to 8 seconds...</span>
+            </div>
+            <span className="text-[11px] text-[var(--text-muted)]/80">
+              If the AI service is experiencing high demand, Smart Import retries automatically.
+            </span>
           </div>
         </div>
       )}
@@ -969,6 +995,13 @@ function SmartImportModalContent({
                       {row.hasDuplicate && (
                         <Badge variant="outline" className="text-[10px] text-[var(--accent-warning)] border-[var(--accent-warning)]/30">
                           Existing record found
+                        </Badge>
+                      )}
+
+                      {/* Needs Mapping Notice */}
+                      {row.matchStatus === "NEEDS_REVIEW" && !row.hasDuplicate && (
+                        <Badge variant="outline" className="text-[10px] text-[var(--accent-warning)] border-[var(--accent-warning)]/30">
+                          Needs subject mapping
                         </Badge>
                       )}
                     </div>
@@ -1149,6 +1182,11 @@ function SmartImportModalContent({
                       {row.hasDuplicate && (
                         <Badge variant="outline" className="text-[10px] text-[var(--accent-warning)] border-[var(--accent-warning)]/30">
                           Existing record found
+                        </Badge>
+                      )}
+                      {row.matchStatus === "NEEDS_REVIEW" && !row.hasDuplicate && (
+                        <Badge variant="outline" className="text-[10px] text-[var(--accent-warning)] border-[var(--accent-warning)]/30">
+                          Needs subject mapping
                         </Badge>
                       )}
                     </div>

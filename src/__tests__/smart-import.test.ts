@@ -8,16 +8,20 @@ import {
 import {
   matchSubject,
   checkRateLimit,
+  deduplicateGradeRows,
+  resolveImageMimeType,
 } from "@/lib/ai/matching";
 import { calculateAttendancePercentage } from "@/lib/calculations/attendance";
 import {
   extractAcademicDataWithGemini,
   isGeminiConfigured,
   getGeminiModelName,
+  getGeminiModelHierarchy,
+  isTransientGeminiError,
   buildExtractionPrompt,
+  buildRecoveryPrompt,
   isExtractionSuspicious,
 } from "@/lib/ai/gemini";
-import { resolveImageMimeType } from "@/lib/ai/matching";
 
 // Mock @google/genai
 const mockGenerateContent = vi.fn();
@@ -563,6 +567,597 @@ describe("Smart Import — Accuracy & Multi-Subject Extraction Overhaul", () => 
       await expect(extractAcademicDataWithGemini([])).rejects.toThrow(
         "No image data provided for extraction"
       );
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 10. TRANSIENT FAILURE RETRY, EXPONENTIAL BACKOFF & MODEL FALLBACK
+  // ───────────────────────────────────────────────────────────────────────────
+  describe("Gemini 503 / Model Overload Retry & Fallback", () => {
+    const validExtractionOutput = JSON.stringify({
+      documentType: "ATTENDANCE",
+      detectedSemester: "IV",
+      totalSubjectsDetected: 4,
+      confidence: "HIGH",
+      summary: "Extracted 4 courses successfully",
+      attendanceRows: [
+        { subjectCode: "CS101", subjectName: "Intro to CS", attended: 28, conducted: 30, percentage: 93.3 },
+        { subjectCode: "CS102", subjectName: "Data Structures", attended: 26, conducted: 30, percentage: 86.7 },
+        { subjectCode: "CS103", subjectName: "Algorithms", attended: 24, conducted: 30, percentage: 80.0 },
+        { subjectCode: "CS104", subjectName: "Operating Systems", attended: 27, conducted: 30, percentage: 90.0 },
+      ],
+      gradeRows: [],
+      detailedMarksRows: [],
+      unreadableNotes: null,
+    });
+
+    beforeEach(() => {
+      process.env.GEMINI_API_KEY = "test-api-key";
+      process.env.GEMINI_MODEL = "gemini-3.8-flash";
+      delete process.env.GEMINI_FALLBACK_MODELS;
+      mockGenerateContent.mockReset();
+    });
+
+    it("successful first attempt -> exactly one API call", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: validExtractionOutput,
+      });
+
+      const result = await extractAcademicDataWithGemini(
+        [{ data: "base64image", mimeType: "image/png" }],
+        "ATTENDANCE",
+        { initialDelayMs: 0 }
+      );
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      expect(mockGenerateContent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: "gemini-3.8-flash",
+        })
+      );
+      expect(result.attendanceRows).toHaveLength(4);
+      expect(result.documentType).toBe("ATTENDANCE");
+    });
+
+    it("first attempt 503 -> second attempt succeeds", async () => {
+      // Attempt 1: 503 UNAVAILABLE
+      mockGenerateContent.mockRejectedValueOnce({
+        status: 503,
+        message: JSON.stringify({
+          error: {
+            code: 503,
+            status: "UNAVAILABLE",
+            message: "This model is currently experiencing high demand. Spikes in demand are usually temporary.",
+          },
+        }),
+      });
+
+      // Attempt 2: Success
+      mockGenerateContent.mockResolvedValueOnce({
+        text: validExtractionOutput,
+      });
+
+      const result = await extractAcademicDataWithGemini(
+        [{ data: "base64image", mimeType: "image/png" }],
+        "ATTENDANCE",
+        { initialDelayMs: 0 }
+      );
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      expect(result.attendanceRows).toHaveLength(4);
+    });
+
+    it("first two attempts 503 -> third succeeds", async () => {
+      // Attempt 1: 503
+      mockGenerateContent.mockRejectedValueOnce({
+        status: 503,
+        message: "503 UNAVAILABLE high demand",
+      });
+
+      // Attempt 2: 503
+      mockGenerateContent.mockRejectedValueOnce({
+        status: 503,
+        message: "503 UNAVAILABLE overloaded",
+      });
+
+      // Attempt 3: Success
+      mockGenerateContent.mockResolvedValueOnce({
+        text: validExtractionOutput,
+      });
+
+      const result = await extractAcademicDataWithGemini(
+        [{ data: "base64image", mimeType: "image/png" }],
+        "ATTENDANCE",
+        { initialDelayMs: 0 }
+      );
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+      expect(result.attendanceRows).toHaveLength(4);
+    });
+
+    it("all attempts 503 -> clean user-facing error without leaking raw JSON", async () => {
+      mockGenerateContent.mockRejectedValue({
+        status: 503,
+        message: JSON.stringify({
+          error: {
+            code: 503,
+            status: "UNAVAILABLE",
+            message: "This model is currently experiencing high demand.",
+          },
+        }),
+      });
+
+      await expect(
+        extractAcademicDataWithGemini(
+          [{ data: "base64image", mimeType: "image/png" }],
+          "ATTENDANCE",
+          { initialDelayMs: 0, maxAttempts: 3 }
+        )
+      ).rejects.toThrow(
+        "AI service is temporarily unavailable. Please try again later or use CSV / Manual Import."
+      );
+
+      // Exactly 3 attempts made, never infinite
+      expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+    });
+
+    it("permanent 400 -> no retry", async () => {
+      mockGenerateContent.mockRejectedValueOnce({
+        status: 400,
+        message: JSON.stringify({
+          error: {
+            code: 400,
+            status: "INVALID_ARGUMENT",
+            message: "Request payload size exceeds limits",
+          },
+        }),
+      });
+
+      await expect(
+        extractAcademicDataWithGemini(
+          [{ data: "base64image", mimeType: "image/png" }],
+          "ATTENDANCE",
+          { initialDelayMs: 0 }
+        )
+      ).rejects.toThrow();
+
+      // Exactly 1 attempt made, 400 was NOT retried
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+
+    it("fallback model succeeds after primary 503", async () => {
+      process.env.GEMINI_MODEL = "gemini-3.8-flash";
+      process.env.GEMINI_FALLBACK_MODELS = "gemini-3.7-flash,gemini-3.6-flash";
+
+      // Attempt 1 on primary model (gemini-3.8-flash) fails with 503
+      mockGenerateContent.mockRejectedValueOnce({
+        status: 503,
+        message: "503 UNAVAILABLE: Model is busy",
+      });
+
+      // Attempt 2 on fallback model (gemini-3.7-flash) succeeds
+      mockGenerateContent.mockResolvedValueOnce({
+        text: validExtractionOutput,
+      });
+
+      const result = await extractAcademicDataWithGemini(
+        [{ data: "base64image", mimeType: "image/png" }],
+        "ATTENDANCE",
+        { initialDelayMs: 0 }
+      );
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+
+      // Verify call 1 used primary model
+      expect(mockGenerateContent.mock.calls[0][0].model).toBe("gemini-3.8-flash");
+
+      // Verify call 2 used fallback model
+      expect(mockGenerateContent.mock.calls[1][0].model).toBe("gemini-3.7-flash");
+
+      expect(result.attendanceRows).toHaveLength(4);
+    });
+
+    it("incomplete extraction recovery still behaves separately", async () => {
+      // First pass returns suspicious 1-row table (no error, successful 200 call)
+      const suspiciousSingleRowOutput = JSON.stringify({
+        documentType: "ATTENDANCE",
+        detectedSemester: "IV",
+        totalSubjectsDetected: 6,
+        confidence: "MEDIUM",
+        summary: "Found table",
+        attendanceRows: [
+          { subjectCode: "CS101", subjectName: "Intro to CS", attended: 28, conducted: 30, percentage: 93.3 },
+        ],
+        gradeRows: [],
+        detailedMarksRows: [],
+        unreadableNotes: null,
+      });
+
+      // Second pass recovery returns full table
+      const recoveryOutput = JSON.stringify({
+        documentType: "ATTENDANCE",
+        detectedSemester: "IV",
+        totalSubjectsDetected: 2,
+        confidence: "HIGH",
+        summary: "Recovered remaining rows",
+        attendanceRows: [
+          { subjectCode: "CS102", subjectName: "Data Structures", attended: 26, conducted: 30, percentage: 86.7 },
+        ],
+        gradeRows: [],
+        detailedMarksRows: [],
+        unreadableNotes: null,
+      });
+
+      mockGenerateContent
+        .mockResolvedValueOnce({ text: suspiciousSingleRowOutput })
+        .mockResolvedValueOnce({ text: recoveryOutput });
+
+      const result = await extractAcademicDataWithGemini(
+        [{ data: "base64image", mimeType: "image/png" }],
+        "ATTENDANCE",
+        { initialDelayMs: 0 }
+      );
+
+      // 2 calls total: 1 first pass, 1 recovery pass (not an error retry)
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      expect(mockGenerateContent.mock.calls[1][0].contents[0].parts[1].text).toContain(
+        "SECOND-PASS TABLE RECOVERY EXTRACTION"
+      );
+      expect(result.attendanceRows).toHaveLength(2);
+    });
+
+    it("returns model hierarchy in preferred fallback order", () => {
+      process.env.GEMINI_MODEL = "gemini-3.8-flash";
+      delete process.env.GEMINI_FALLBACK_MODELS;
+      const hierarchy = getGeminiModelHierarchy();
+      expect(hierarchy).toEqual([
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+      ]);
+
+      // Custom configured fallbacks with deduplication
+      process.env.GEMINI_FALLBACK_MODELS = "gemini-3.7-flash, custom-model";
+      const customHierarchy = getGeminiModelHierarchy();
+      expect(customHierarchy).toEqual([
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "custom-model",
+      ]);
+    });
+
+    it("correctly identifies transient vs permanent errors in isTransientGeminiError", () => {
+      expect(isTransientGeminiError({ status: 503 })).toBe(true);
+      expect(isTransientGeminiError({ status: 500 })).toBe(true);
+      expect(isTransientGeminiError({ status: 502 })).toBe(true);
+      expect(isTransientGeminiError({ status: 504 })).toBe(true);
+      expect(isTransientGeminiError({ message: "HTTP 503 status UNAVAILABLE high demand" })).toBe(true);
+      expect(isTransientGeminiError({ message: "Spikes in demand are usually temporary" })).toBe(true);
+
+      // Permanent errors
+      expect(isTransientGeminiError({ status: 400 })).toBe(false);
+      expect(isTransientGeminiError({ status: 401 })).toBe(false);
+      expect(isTransientGeminiError({ status: 403 })).toBe(false);
+      expect(isTransientGeminiError({ status: 404 })).toBe(false);
+      expect(isTransientGeminiError({ message: "API key not valid" })).toBe(false);
+      expect(isTransientGeminiError({ message: "Validation schema error" })).toBe(false);
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 6. GRADE / RESULT TABLE EXTRACTION SUITE (EXACT 7-COURSE TABLE SPEC)
+  // ───────────────────────────────────────────────────────────────────────────
+  describe("Grade / Result Table Extraction & Pipeline Verification", () => {
+    const exactSevenCourseRows = [
+      {
+        subjectCode: "CHE110",
+        subjectName: "ENVIRONMENTAL STUDIES",
+        grade: "A+",
+        credits: null,
+        gradePoint: null,
+        marksObtained: null,
+        maxMarks: null,
+        confidence: "HIGH" as const,
+      },
+      {
+        subjectCode: "CSE111",
+        subjectName: "ORIENTATION TO COMPUTING-I",
+        grade: "A+",
+        credits: null,
+        gradePoint: null,
+        marksObtained: null,
+        maxMarks: null,
+        confidence: "HIGH" as const,
+      },
+      {
+        subjectCode: "CSE326",
+        subjectName: "INTERNET PROGRAMMING LABORATORY",
+        grade: "O",
+        credits: null,
+        gradePoint: null,
+        marksObtained: null,
+        maxMarks: null,
+        confidence: "HIGH" as const,
+      },
+      {
+        subjectCode: "ECE249",
+        subjectName: "BASIC ELECTRICAL AND ELECTRONICS ENGINEERING",
+        grade: "A",
+        credits: null,
+        gradePoint: null,
+        marksObtained: null,
+        maxMarks: null,
+        confidence: "HIGH" as const,
+      },
+      {
+        subjectCode: "ECE279",
+        subjectName: "BASIC ELECTRICAL AND ELECTRONICS ENGINEERING LABORATORY",
+        grade: "A+",
+        credits: null,
+        gradePoint: null,
+        marksObtained: null,
+        maxMarks: null,
+        confidence: "HIGH" as const,
+      },
+      {
+        subjectCode: "INT108",
+        subjectName: "PYTHON PROGRAMMING",
+        grade: "B+",
+        credits: null,
+        gradePoint: null,
+        marksObtained: null,
+        maxMarks: null,
+        confidence: "HIGH" as const,
+      },
+      {
+        subjectCode: "MTH165",
+        subjectName: "MATHEMATICS FOR ENGINEERS",
+        grade: "C",
+        credits: null,
+        gradePoint: null,
+        marksObtained: null,
+        maxMarks: null,
+        confidence: "HIGH" as const,
+      },
+    ];
+
+    it("extracts all 7 courses from the exact university examination result table", async () => {
+      process.env.GEMINI_API_KEY = "mock-key";
+
+      const mockResponse = JSON.stringify({
+        documentType: "GRADES",
+        detectedSemester: "I",
+        totalSubjectsDetected: 7,
+        confidence: "HIGH",
+        summary: "Extracted 7 course grades from result table",
+        attendanceRows: [],
+        gradeRows: exactSevenCourseRows,
+        detailedMarksRows: [],
+        unreadableNotes: null,
+      });
+
+      mockGenerateContent.mockResolvedValueOnce({ text: mockResponse });
+
+      const result = await extractAcademicDataWithGemini(
+        [{ data: "base64image", mimeType: "image/png" }],
+        "GRADES"
+      );
+
+      expect(result.documentType).toBe("GRADES");
+      expect(result.gradeRows).toHaveLength(7);
+
+      expect(result.gradeRows[0]).toMatchObject({ subjectCode: "CHE110", grade: "A+" });
+      expect(result.gradeRows[1]).toMatchObject({ subjectCode: "CSE111", grade: "A+" });
+      expect(result.gradeRows[2]).toMatchObject({ subjectCode: "CSE326", grade: "O" });
+      expect(result.gradeRows[3]).toMatchObject({ subjectCode: "ECE249", grade: "A" });
+      expect(result.gradeRows[4]).toMatchObject({ subjectCode: "ECE279", grade: "A+" });
+      expect(result.gradeRows[5]).toMatchObject({ subjectCode: "INT108", grade: "B+" });
+      expect(result.gradeRows[6]).toMatchObject({ subjectCode: "MTH165", grade: "C" });
+    });
+
+    it("considers a grade row valid with no marks, no credits, and no gradePoint", () => {
+      const row = {
+        subjectCode: "CHE110",
+        subjectName: "ENVIRONMENTAL STUDIES",
+        grade: "A+",
+        credits: null,
+        gradePoint: null,
+        marksObtained: null,
+        maxMarks: null,
+        confidence: "HIGH",
+      };
+
+      const parsed = ExtractedGradeRowSchema.safeParse(row);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.subjectCode).toBe("CHE110");
+        expect(parsed.data.subjectName).toBe("ENVIRONMENTAL STUDIES");
+        expect(parsed.data.grade).toBe("A+");
+        expect(parsed.data.credits).toBeNull();
+        expect(parsed.data.marksObtained).toBeNull();
+        expect(parsed.data.gradePoint).toBeNull();
+      }
+    });
+
+    it("does not drop unmatched courses during matching, returning status NEEDS_REVIEW", () => {
+      const existingSubjects: MatchedSubjectInfo[] = []; // User has no existing subjects in semester
+
+      const match = matchSubject("CHE110", "ENVIRONMENTAL STUDIES", existingSubjects);
+
+      expect(match.matchedSubject).toBeNull();
+      expect(match.status).toBe("NEEDS_REVIEW");
+    });
+
+    it("flags 0-row extraction as suspicious when totalSubjectsDetected indicated courses", () => {
+      const zeroRowResult = {
+        documentType: "GRADES" as const,
+        totalSubjectsDetected: 7,
+        confidence: "LOW" as const,
+        attendanceRows: [],
+        gradeRows: [],
+        detailedMarksRows: [],
+      };
+
+      expect(isExtractionSuspicious(zeroRowResult, "GRADES")).toBe(true);
+    });
+
+    it("flags 1-row extraction as suspicious when a table document was scanned", () => {
+      const singleRowResult = {
+        documentType: "GRADES" as const,
+        totalSubjectsDetected: 7,
+        confidence: "MEDIUM" as const,
+        attendanceRows: [],
+        gradeRows: [exactSevenCourseRows[0]],
+        detailedMarksRows: [],
+      };
+
+      expect(isExtractionSuspicious(singleRowResult, "GRADES")).toBe(true);
+    });
+
+    it("recovers missing course rows using grade-specific recovery prompt", async () => {
+      process.env.GEMINI_API_KEY = "mock-key";
+
+      // Pass 1 returns only 1 row
+      const firstPassJson = JSON.stringify({
+        documentType: "GRADES",
+        detectedSemester: "I",
+        totalSubjectsDetected: 7,
+        confidence: "MEDIUM",
+        summary: "Partial table",
+        attendanceRows: [],
+        gradeRows: [exactSevenCourseRows[0]],
+        detailedMarksRows: [],
+        unreadableNotes: null,
+      });
+
+      // Pass 2 recovery returns all 7 rows
+      const recoveryPassJson = JSON.stringify({
+        documentType: "GRADES",
+        detectedSemester: "I",
+        totalSubjectsDetected: 7,
+        confidence: "HIGH",
+        summary: "Recovered all 7 courses",
+        attendanceRows: [],
+        gradeRows: exactSevenCourseRows,
+        detailedMarksRows: [],
+        unreadableNotes: null,
+      });
+
+      mockGenerateContent
+        .mockResolvedValueOnce({ text: firstPassJson })
+        .mockResolvedValueOnce({ text: recoveryPassJson });
+
+      const result = await extractAcademicDataWithGemini(
+        [{ data: "base64image", mimeType: "image/png" }],
+        "GRADES",
+        { initialDelayMs: 0 }
+      );
+
+      // Verify recovery prompt contains grade-specific instructions
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      const recoveryPrompt = mockGenerateContent.mock.calls[1][0].contents[0].parts[1].text;
+      expect(recoveryPrompt).toContain("SECOND-PASS UNIVERSITY RESULT TABLE RECOVERY EXTRACTION");
+      expect(recoveryPrompt).toContain("course codes");
+
+      // Verify merged result contains all 7 course rows
+      expect(result.gradeRows).toHaveLength(7);
+      expect(result.gradeRows.map((r) => r.subjectCode)).toEqual([
+        "CHE110",
+        "CSE111",
+        "CSE326",
+        "ECE249",
+        "ECE279",
+        "INT108",
+        "MTH165",
+      ]);
+    });
+
+    it("supports multi-image grade extraction (Image 1: 3 rows, Image 2: 4 rows -> 7 rows)", async () => {
+      process.env.GEMINI_API_KEY = "mock-key";
+
+      const image1Output = JSON.stringify({
+        documentType: "GRADES",
+        totalSubjectsDetected: 3,
+        confidence: "HIGH",
+        attendanceRows: [],
+        gradeRows: exactSevenCourseRows.slice(0, 3), // CHE110, CSE111, CSE326
+        detailedMarksRows: [],
+        unreadableNotes: null,
+      });
+
+      const image2Output = JSON.stringify({
+        documentType: "GRADES",
+        totalSubjectsDetected: 4,
+        confidence: "HIGH",
+        attendanceRows: [],
+        gradeRows: exactSevenCourseRows.slice(3, 7), // ECE249, ECE279, INT108, MTH165
+        detailedMarksRows: [],
+        unreadableNotes: null,
+      });
+
+      mockGenerateContent
+        .mockResolvedValueOnce({ text: image1Output })
+        .mockResolvedValueOnce({ text: image2Output });
+
+      const result = await extractAcademicDataWithGemini(
+        [
+          { data: "base64image1", mimeType: "image/png" },
+          { data: "base64image2", mimeType: "image/png" },
+        ],
+        "GRADES"
+      );
+
+      expect(result.gradeRows).toHaveLength(7);
+      expect(result.gradeRows[0].sourceImageIndex).toBe(1);
+      expect(result.gradeRows[1].sourceImageIndex).toBe(1);
+      expect(result.gradeRows[2].sourceImageIndex).toBe(1);
+      expect(result.gradeRows[3].sourceImageIndex).toBe(2);
+      expect(result.gradeRows[4].sourceImageIndex).toBe(2);
+      expect(result.gradeRows[5].sourceImageIndex).toBe(2);
+      expect(result.gradeRows[6].sourceImageIndex).toBe(2);
+    });
+
+    it("deduplicates duplicate grade rows across multiple images by course code", () => {
+      const rowsWithDuplicates = [
+        {
+          sourceImageIndex: 1,
+          subjectCode: "CHE110",
+          subjectName: "ENVIRONMENTAL STUDIES",
+          grade: "A+",
+          confidence: "MEDIUM" as const,
+        },
+        {
+          sourceImageIndex: 2,
+          subjectCode: "CHE110",
+          subjectName: "ENVIRONMENTAL STUDIES",
+          grade: "A+",
+          confidence: "HIGH" as const,
+        },
+        {
+          sourceImageIndex: 1,
+          subjectCode: "CSE111",
+          subjectName: "ORIENTATION TO COMPUTING-I",
+          grade: "A+",
+          confidence: "HIGH" as const,
+        },
+      ];
+
+      const deduplicated = deduplicateGradeRows(rowsWithDuplicates);
+      expect(deduplicated).toHaveLength(2);
+      expect(deduplicated.find((r) => r.subjectCode === "CHE110")?.confidence).toBe("HIGH");
+    });
+
+    it("builds dedicated grade prompt and recovery prompt with table instructions", () => {
+      const extractionPrompt = buildExtractionPrompt("GRADES", 1, 1);
+      expect(extractionPrompt).toContain("university examination/result table");
+      expect(extractionPrompt).toContain("CHE110");
+      expect(extractionPrompt).toContain("leave marksObtained and maxMarks as null");
+      expect(extractionPrompt).toContain("leave credits as null");
+
+      const recoveryPrompt = buildRecoveryPrompt("GRADES", 1);
+      expect(recoveryPrompt).toContain("SECOND-PASS UNIVERSITY RESULT TABLE RECOVERY EXTRACTION");
+      expect(recoveryPrompt).toContain("Reinspect every horizontal course row");
     });
   });
 });
