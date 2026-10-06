@@ -66,7 +66,6 @@ export function SmartImportModal(props: SmartImportModalProps) {
 }
 
 function SmartImportModalContent({
-  open,
   onOpenChange,
   defaultImportType = "AUTO_DETECT",
   selectedSemesterId,
@@ -105,28 +104,41 @@ function SmartImportModalContent({
   } | null>(null);
 
   const [isSaving, setIsSaving] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Handle file selection
+  // Helper to validate image format by MIME or file extension
+  const isValidImageType = (file: File) => {
+    const allowedMime = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+    const mime = file.type?.toLowerCase();
+    if (mime && allowedMime.includes(mime)) return true;
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    return ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "webp";
+  };
+
+  // Format file size nicely for previews
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  // Handle file selection (supports adding multiple files at once or cumulatively)
   const handleFilesAdded = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setErrorMessage(null);
 
-    const allowed = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
     const newFiles: File[] = [];
     const newPreviews: string[] = [];
+    let limitReached = false;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (selectedFiles.length + newFiles.length >= 5) {
-        toast({
-          title: "Limit Reached",
-          description: "Maximum 5 screenshots allowed per import session.",
-          type: "warning",
-        });
+        limitReached = true;
         break;
       }
 
-      if (!allowed.includes(file.type.toLowerCase())) {
+      if (!isValidImageType(file)) {
         toast({
           title: "Unsupported Format",
           description: `${file.name} is not a supported format. Please use PNG, JPEG, or WEBP.`,
@@ -148,12 +160,24 @@ function SmartImportModalContent({
       newPreviews.push(URL.createObjectURL(file));
     }
 
-    setSelectedFiles((prev) => [...prev, ...newFiles]);
-    setFilePreviews((prev) => [...prev, ...newPreviews]);
+    if (limitReached) {
+      toast({
+        title: "Maximum 5 Images",
+        description: "You can upload at most 5 screenshots per Smart Import session.",
+        type: "warning",
+      });
+    }
+
+    if (newFiles.length > 0) {
+      setSelectedFiles((prev) => [...prev, ...newFiles]);
+      setFilePreviews((prev) => [...prev, ...newPreviews]);
+    }
   };
 
   const removeFile = (index: number) => {
-    URL.revokeObjectURL(filePreviews[index]);
+    if (filePreviews[index]) {
+      URL.revokeObjectURL(filePreviews[index]);
+    }
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
     setFilePreviews((prev) => prev.filter((_, i) => i !== index));
   };
@@ -624,35 +648,49 @@ function SmartImportModalContent({
               Supports PNG, JPEG, and WEBP up to 10 MB each (Max 5 screenshots)
             </p>
             <input
+              ref={fileInputRef}
               type="file"
               multiple
-              accept="image/png,image/jpeg,image/webp"
-              onChange={(e) => handleFilesAdded(e.target.files)}
+              accept="image/png,image/jpeg,image/jpg,image/webp,.png,.jpg,.jpeg,.webp"
+              onChange={(e) => {
+                handleFilesAdded(e.target.files);
+                e.target.value = "";
+              }}
               className="hidden"
               id="smart-import-file-input"
             />
-            <label
-              htmlFor="smart-import-file-input"
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
               className="mt-4 cursor-pointer inline-flex items-center gap-1.5 rounded-lg bg-[var(--brand-primary)] px-4 py-2 text-xs font-semibold text-white shadow-2xs hover:bg-[var(--brand-primary)]/90 transition-colors"
             >
               <Plus className="h-4 w-4" />
-              Choose Images
-            </label>
+              {selectedFiles.length > 0 ? "Select Additional Images" : "Choose Images"}
+            </button>
           </div>
 
-          {/* Thumbnails preview */}
+          {/* Thumbnails preview gallery */}
           {selectedFiles.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-[var(--text-secondary)]">
-                  Selected Screenshots ({selectedFiles.length}/5)
-                </span>
-                <label
-                  htmlFor="smart-import-file-input"
-                  className="text-xs text-[var(--brand-primary)] font-medium cursor-pointer hover:underline"
-                >
-                  + Add another image
-                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-[var(--text-primary)]">
+                    {selectedFiles.length} {selectedFiles.length === 1 ? "image" : "images"} selected
+                  </span>
+                  <Badge variant="outline" className="text-[10px]">
+                    {selectedFiles.length}/5 maximum
+                  </Badge>
+                </div>
+                {selectedFiles.length < 5 && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-xs text-[var(--brand-primary)] font-medium hover:underline inline-flex items-center gap-1"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add more images
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {selectedFiles.map((file, idx) => (
@@ -660,23 +698,31 @@ function SmartImportModalContent({
                     key={idx}
                     className="group relative rounded-lg border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-surface)] shadow-2xs"
                   >
-                    <div className="aspect-video w-full bg-slate-900/5 dark:bg-white/5 flex items-center justify-center overflow-hidden">
+                    <div className="aspect-video w-full bg-slate-900/5 dark:bg-white/5 flex items-center justify-center overflow-hidden relative">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={filePreviews[idx]}
                         alt={`Screenshot ${idx + 1}`}
                         className="object-cover h-full w-full"
                       />
+                      <span className="absolute top-1 left-1 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded font-bold">
+                        Image {idx + 1}
+                      </span>
                     </div>
                     <div className="p-1.5 flex items-center justify-between text-xs">
-                      <span className="truncate max-w-[80px] text-[var(--text-secondary)] text-[10px]">
-                        {file.name}
-                      </span>
+                      <div className="truncate max-w-[85px]">
+                        <span className="truncate block text-[var(--text-secondary)] text-[10px] font-medium" title={file.name}>
+                          {file.name}
+                        </span>
+                        <span className="text-[9px] text-[var(--text-muted)]">
+                          {formatFileSize(file.size)}
+                        </span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => removeFile(idx)}
-                        className="text-[var(--text-muted)] hover:text-[var(--accent-danger)]"
-                        title="Remove image"
+                        className="text-[var(--text-muted)] hover:text-[var(--accent-danger)] p-0.5"
+                        title={`Remove Image ${idx + 1}`}
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -691,9 +737,7 @@ function SmartImportModalContent({
           <div className="flex items-start gap-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-xs text-[var(--text-secondary)]">
             <ShieldCheck className="h-4 w-4 shrink-0 text-[var(--accent-success)] mt-0.5" />
             <p>
-              <strong>Privacy Protection:</strong> Your image is sent to the AI extraction
-              service to read the information. The image is not stored permanently by Smart Student
-              Manager.
+              <strong>Privacy Protection:</strong> Uploaded images are analyzed in memory for academic data extraction and are never permanently stored.
             </p>
           </div>
 
@@ -732,7 +776,9 @@ function SmartImportModalContent({
                 className="gap-1.5"
               >
                 <Sparkles className="h-4 w-4" />
-                Analyze with AI
+                {selectedFiles.length > 1
+                  ? `Analyze ${selectedFiles.length} Images with AI`
+                  : "Analyze with AI"}
               </Button>
             </div>
           </DialogFooter>
@@ -752,8 +798,7 @@ function SmartImportModalContent({
               Extracting Structured Academic Data...
             </h3>
             <p className="text-xs text-[var(--text-secondary)] max-w-md">
-              Gemini AI is scanning your screenshots for course codes, attendance percentages,
-              letter grades, and marks breakdowns.
+              Gemini AI is scanning {selectedFiles.length} screenshot{selectedFiles.length > 1 ? "s" : ""} from top to bottom for complete attendance tables, course codes, and grades.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
@@ -775,13 +820,32 @@ function SmartImportModalContent({
             </div>
           )}
 
+          {/* Completeness Warning Banner */}
+          {reviewPayload?.isPotentiallyIncomplete && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-[var(--accent-warning)]/40 bg-[var(--accent-warning)]/10 p-3 text-xs text-[var(--accent-warning)]">
+              <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <p className="font-bold text-sm">Extraction Warning: Potential Incomplete Extraction</p>
+                <p>
+                  {reviewPayload.completenessWarning ||
+                    `Only ${totalDetected} subject(s) detected — please review your screenshot(s) because some rows may have been missed.`}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Review Header Banner */}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--bg-surface)] p-3 border border-[var(--border-subtle)]">
             <div className="space-y-0.5">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-bold text-[var(--text-primary)]">
-                  {totalDetected} record(s) detected
+                  {totalDetected} subject{totalDetected === 1 ? "" : "s"} detected
                 </span>
+                {reviewPayload?.totalImagesProcessed && reviewPayload.totalImagesProcessed > 1 && (
+                  <Badge variant="outline" className="text-xs">
+                    {reviewPayload.totalImagesProcessed} images processed
+                  </Badge>
+                )}
                 {reviewPayload?.detectedSemester && (
                   <Badge variant="outline" className="text-xs">
                     Semester: {reviewPayload.detectedSemester}
@@ -792,7 +856,7 @@ function SmartImportModalContent({
                 </Badge>
               </div>
               <p className="text-xs text-[var(--text-muted)]">
-                Review and edit extracted values before saving. Nothing is saved until you confirm.
+                Review and edit extracted values before saving. Attendance percentages are verified against attended/conducted counts.
               </p>
             </div>
 
@@ -879,6 +943,11 @@ function SmartImportModalContent({
                       <span className="font-bold text-sm text-[var(--text-primary)]">
                         {row.subjectCode || "—"}: {row.subjectName || "Unassigned Course"}
                       </span>
+                      {row.sourceImageIndex && (
+                        <Badge variant="outline" className="text-[10px] text-[var(--text-muted)]">
+                          Image {row.sourceImageIndex}
+                        </Badge>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -982,7 +1051,7 @@ function SmartImportModalContent({
                         </span>
                         <span className="font-bold text-[var(--text-primary)]">
                           {row.calculatedPercentage !== null
-                            ? `${row.calculatedPercentage.toFixed(1)}%`
+                            ? `${row.calculatedPercentage.toFixed(1)}% (${row.attended ?? 0}/${row.conducted ?? 0})`
                             : "—"}
                         </span>
                       </div>
@@ -1057,6 +1126,11 @@ function SmartImportModalContent({
                       <span className="font-bold text-sm text-[var(--text-primary)]">
                         {row.subjectCode || "—"}: {row.subjectName || "Unassigned Course"}
                       </span>
+                      {row.sourceImageIndex && (
+                        <Badge variant="outline" className="text-[10px] text-[var(--text-muted)]">
+                          Image {row.sourceImageIndex}
+                        </Badge>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -1257,6 +1331,11 @@ function SmartImportModalContent({
                       <span className="font-bold text-sm text-[var(--text-primary)]">
                         {row.subjectCode || "—"}: {row.subjectName || "Unassigned Course"}
                       </span>
+                      {row.sourceImageIndex && (
+                        <Badge variant="outline" className="text-[10px] text-[var(--text-muted)]">
+                          Image {row.sourceImageIndex}
+                        </Badge>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5">

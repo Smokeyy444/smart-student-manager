@@ -24,6 +24,7 @@ export type ImportDocumentType = z.infer<typeof ImportDocumentTypeSchema>;
  * Fields not clearly visible must be null.
  */
 export const ExtractedAttendanceRowSchema = z.object({
+  sourceImageIndex: z.number().int().min(1).nullable().optional(),
   subjectCode: z.string().trim().nullable().optional(),
   subjectName: z.string().trim().nullable().optional(),
   attended: z.number().int().min(0).nullable().optional(),
@@ -42,6 +43,7 @@ export type ExtractedAttendanceRow = z.infer<typeof ExtractedAttendanceRowSchema
  * Fields not clearly visible must be null.
  */
 export const ExtractedGradeRowSchema = z.object({
+  sourceImageIndex: z.number().int().min(1).nullable().optional(),
   semester: z.string().trim().nullable().optional(),
   subjectCode: z.string().trim().nullable().optional(),
   subjectName: z.string().trim().nullable().optional(),
@@ -72,6 +74,7 @@ export type ExtractedMarksComponent = z.infer<typeof ExtractedMarksComponentSche
  * Extracted subject with detailed marks components breakdown.
  */
 export const ExtractedDetailedMarksSubjectSchema = z.object({
+  sourceImageIndex: z.number().int().min(1).nullable().optional(),
   semester: z.string().trim().nullable().optional(),
   subjectCode: z.string().trim().nullable().optional(),
   subjectName: z.string().trim().nullable().optional(),
@@ -89,6 +92,7 @@ export type ExtractedDetailedMarksSubject = z.infer<typeof ExtractedDetailedMark
 export const SmartExtractionResultSchema = z.object({
   documentType: z.enum(["ATTENDANCE", "GRADES", "DETAILED_MARKS", "UNKNOWN"]),
   detectedSemester: z.string().trim().nullable().optional(),
+  totalSubjectsDetected: z.number().int().min(0).nullable().optional(),
   confidence: ConfidenceLevelSchema.default("MEDIUM"),
   summary: z.string().trim().nullable().optional(),
   attendanceRows: z.array(ExtractedAttendanceRowSchema).default([]),
@@ -126,6 +130,7 @@ export interface MatchedSubjectInfo {
 
 export interface ReviewAttendanceItem {
   id: string; // client row uuid
+  sourceImageIndex?: number | null;
   selected: boolean;
   subjectCode: string | null;
   subjectName: string | null;
@@ -148,6 +153,7 @@ export interface ReviewAttendanceItem {
 
 export interface ReviewGradeItem {
   id: string; // client row uuid
+  sourceImageIndex?: number | null;
   selected: boolean;
   subjectCode: string | null;
   subjectName: string | null;
@@ -171,6 +177,7 @@ export interface ReviewGradeItem {
 
 export interface ReviewDetailedMarksItem {
   id: string; // client row uuid
+  sourceImageIndex?: number | null;
   selected: boolean;
   subjectCode: string | null;
   subjectName: string | null;
@@ -199,6 +206,10 @@ export interface SmartImportReviewPayload {
   detailedMarksItems: ReviewDetailedMarksItem[];
   existingSubjects: MatchedSubjectInfo[];
   targetSemesterId: string;
+  totalImagesProcessed?: number;
+  totalDetectedRows?: number;
+  isPotentiallyIncomplete?: boolean;
+  completenessWarning?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

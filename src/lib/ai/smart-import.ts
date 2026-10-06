@@ -30,7 +30,11 @@ import {
   resolveGradePoint,
   isGradePassing,
 } from "../calculations/grading-scale";
-import { checkRateLimit, matchSubject } from "./matching";
+import {
+  checkRateLimit,
+  matchSubject,
+  resolveImageMimeType,
+} from "./matching";
 import type { ActionResult } from "../actions/auth";
 
 function safeRevalidate(path: string) {
@@ -45,7 +49,6 @@ function safeRevalidate(path: string) {
 // FILE VALIDATION CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 const MAX_IMAGE_COUNT = 5;
 
@@ -139,11 +142,11 @@ export async function processSmartImportImages(
       };
     }
 
-    const mime = file.type?.toLowerCase();
-    if (!ALLOWED_MIME_TYPES.includes(mime)) {
+    const mime = resolveImageMimeType(file);
+    if (!mime) {
       return {
         success: false,
-        error: `File '${file.name}' has an unsupported format (${mime || "unknown"}). Only PNG, JPEG, and WEBP images are supported.`,
+        error: `File '${file.name}' has an unsupported format (${file.type || "unknown"}). Only PNG, JPEG, and WEBP images are supported.`,
       };
     }
 
@@ -151,7 +154,7 @@ export async function processSmartImportImages(
     const base64Data = Buffer.from(arrayBuffer).toString("base64");
     imageParts.push({
       data: base64Data,
-      mimeType: mime === "image/jpg" ? "image/jpeg" : mime,
+      mimeType: mime,
     });
   }
 
@@ -174,7 +177,7 @@ export async function processSmartImportImages(
   const gradingScale = await getActiveGradingScale(user.id);
 
   try {
-    // Call Gemini API
+    // Call Gemini API (handles table-level extraction, multi-image merging, and deduplication)
     const aiResult = await extractAcademicDataWithGemini(imageParts, documentType);
 
     // Build Review Items
@@ -225,6 +228,7 @@ export async function processSmartImportImages(
 
       attendanceItems.push({
         id: `att-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+        sourceImageIndex: row.sourceImageIndex ?? null,
         selected: isValid,
         subjectCode: row.subjectCode ?? null,
         subjectName: row.subjectName ?? null,
@@ -291,6 +295,7 @@ export async function processSmartImportImages(
 
       gradeItems.push({
         id: `grd-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+        sourceImageIndex: row.sourceImageIndex ?? null,
         selected: isValid && !isContradictory,
         subjectCode: row.subjectCode ?? null,
         subjectName: row.subjectName ?? null,
@@ -352,6 +357,7 @@ export async function processSmartImportImages(
 
       detailedMarksItems.push({
         id: `dm-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+        sourceImageIndex: row.sourceImageIndex ?? null,
         selected: true,
         subjectCode: row.subjectCode ?? null,
         subjectName: row.subjectName ?? null,
@@ -372,6 +378,43 @@ export async function processSmartImportImages(
       });
     }
 
+    // 4. Completeness check & suspicious extraction detection
+    const totalDetectedRows =
+      attendanceItems.length + gradeItems.length + detailedMarksItems.length;
+
+    let isPotentiallyIncomplete = false;
+    let completenessWarning: string | null = null;
+
+    if (documentType === "ATTENDANCE" || aiResult.documentType === "ATTENDANCE") {
+      if (attendanceItems.length > 0 && attendanceItems.length <= 2) {
+        isPotentiallyIncomplete = true;
+        completenessWarning = `Only ${attendanceItems.length} subject${
+          attendanceItems.length === 1 ? "" : "s"
+        } detected — please review your screenshot(s) because some rows may have been missed.`;
+      } else if (
+        typeof aiResult.totalSubjectsDetected === "number" &&
+        aiResult.totalSubjectsDetected > attendanceItems.length
+      ) {
+        isPotentiallyIncomplete = true;
+        completenessWarning = `The AI detected approximately ${aiResult.totalSubjectsDetected} subject rows in the document, but only ${attendanceItems.length} were fully extracted. Please verify all courses below.`;
+      }
+    }
+
+    // 5. Development-only structured debug logging (without logging image contents or secrets)
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[Smart Import Debug]", {
+        imagesSubmitted: fileEntries.length,
+        imagesSentToGemini: imageParts.length,
+        rawAttendanceRowsReturned: aiResult.attendanceRows.length,
+        attendanceRowsAfterValidation: attendanceItems.length,
+        gradeRowsAfterValidation: gradeItems.length,
+        detailedMarksRowsAfterValidation: detailedMarksItems.length,
+        totalDetectedRows,
+        documentType: aiResult.documentType,
+        isPotentiallyIncomplete,
+      });
+    }
+
     const payload: SmartImportReviewPayload = {
       documentType: aiResult.documentType,
       detectedSemester: aiResult.detectedSemester ?? null,
@@ -381,6 +424,10 @@ export async function processSmartImportImages(
       detailedMarksItems,
       existingSubjects: existingSubjectInfos,
       targetSemesterId: semesterId,
+      totalImagesProcessed: fileEntries.length,
+      totalDetectedRows,
+      isPotentiallyIncomplete,
+      completenessWarning,
     };
 
     return {
